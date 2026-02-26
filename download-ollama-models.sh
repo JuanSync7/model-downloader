@@ -28,32 +28,21 @@ OLLAMA_LAST_TGZ_VER="v0.13.0"
 
 install_ollama() {
   local version="$1"
+  local fmt="$2"   # "zst" or "tgz"
   local tmpdir
   tmpdir=$(mktemp -d)
   trap "rm -rf $tmpdir" RETURN
 
   mkdir -p "$(dirname "$OLLAMA_BIN")"
 
-  local zst_url="${OLLAMA_RELEASE_BASE}/${version}/ollama-linux-amd64.tar.zst"
-  local tgz_url="${OLLAMA_RELEASE_BASE}/${version}/ollama-linux-amd64.tgz"
-
-  if command -v zstd &>/dev/null; then
-    # zstd available — download latest .tar.zst
+  if [ "$fmt" = "zst" ]; then
+    local url="${OLLAMA_RELEASE_BASE}/${version}/ollama-linux-amd64.tar.zst"
     echo "  Downloading ollama ${version} (.tar.zst)..."
-    curl -fsSL --progress-bar "$zst_url" | zstd -d | tar -xf - -C "$tmpdir"
-  elif curl -fsSL --head "$tgz_url" &>/dev/null 2>&1; then
-    # No zstd but .tgz exists for this version
-    echo "  Downloading ollama ${version} (.tgz)..."
-    curl -fsSL --progress-bar "$tgz_url" | tar -xzf - -C "$tmpdir"
+    curl -fsSL --progress-bar "$url" | zstd -d | tar -xf - -C "$tmpdir"
   else
-    # No zstd and version too new for .tgz — fall back to last tgz release
-    echo "  WARNING: zstd not found and ${version} only ships .tar.zst"
-    echo "  Falling back to ${OLLAMA_LAST_TGZ_VER} (last .tgz release)"
-    echo "  To get the latest version, install zstd: sudo apt-get install zstd"
-    local fallback_url="${OLLAMA_RELEASE_BASE}/${OLLAMA_LAST_TGZ_VER}/ollama-linux-amd64.tgz"
-    echo "  Downloading ollama ${OLLAMA_LAST_TGZ_VER} (.tgz)..."
-    curl -fsSL --progress-bar "$fallback_url" | tar -xzf - -C "$tmpdir"
-    version="$OLLAMA_LAST_TGZ_VER"
+    local url="${OLLAMA_RELEASE_BASE}/${version}/ollama-linux-amd64.tgz"
+    echo "  Downloading ollama ${version} (.tgz)..."
+    curl -fsSL --progress-bar "$url" | tar -xzf - -C "$tmpdir"
   fi
 
   # The archive extracts to bin/ollama
@@ -66,28 +55,39 @@ install_ollama() {
     return 1
   fi
   chmod +x "$OLLAMA_BIN"
-  echo "  Installed version: $(\"$OLLAMA_BIN\" --version 2>&1 | awk '{print $NF}')"
 }
 
-# Fetch latest release tag
+# Decide which version and format to use upfront
 LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/ollama/ollama/releases/latest" \
   | grep '"tag_name"' | head -1 | cut -d'"' -f4)
 LATEST_VER="${LATEST_TAG#v}"
-echo "  Latest Ollama release: $LATEST_VER"
+
+if command -v zstd &>/dev/null; then
+  TARGET_TAG="$LATEST_TAG"
+  TARGET_FMT="zst"
+  echo "  Latest Ollama release: $LATEST_VER (zstd available)"
+else
+  TARGET_TAG="$OLLAMA_LAST_TGZ_VER"
+  TARGET_FMT="tgz"
+  echo "  Latest Ollama release: $LATEST_VER"
+  echo "  zstd not found — using ${OLLAMA_LAST_TGZ_VER} (last .tgz release)"
+  echo "  To get the latest: sudo apt-get install zstd"
+fi
+TARGET_VER="${TARGET_TAG#v}"
 
 if ! command -v ollama &>/dev/null; then
   echo "  Ollama not found — installing to $OLLAMA_BIN..."
-  install_ollama "$LATEST_TAG"
-  echo "  ✓ Ollama installed"
+  install_ollama "$TARGET_TAG" "$TARGET_FMT"
+  echo "  ✓ Ollama ${TARGET_VER} installed"
 else
   OLLAMA_VERSION=$(ollama --version 2>&1 | awk '{print $NF}')
   echo "  Ollama $OLLAMA_VERSION installed at $(which ollama)"
-  if [ "$OLLAMA_VERSION" = "$LATEST_VER" ]; then
+  if [ "$OLLAMA_VERSION" = "$TARGET_VER" ]; then
     echo "  ✓ Ollama $OLLAMA_VERSION (up to date)"
   else
-    echo "  ↑ Ollama $OLLAMA_VERSION → $LATEST_VER (upgrading)..."
-    install_ollama "$LATEST_TAG"
-    echo "  ✓ Ollama upgraded"
+    echo "  ↑ Ollama $OLLAMA_VERSION → $TARGET_VER (upgrading)..."
+    install_ollama "$TARGET_TAG" "$TARGET_FMT"
+    echo "  ✓ Ollama upgraded to $TARGET_VER"
   fi
 fi
 echo ""
