@@ -85,18 +85,29 @@ echo ""
 # ── Ensure ollama server is running ──────────────────────────────────────────
 if ! curl -sf http://localhost:11434/api/tags &>/dev/null; then
   echo "  Starting ollama server..."
-  ollama serve &>/dev/null &
+  OLLAMA_LOG=$(mktemp)
+  ollama serve >"$OLLAMA_LOG" 2>&1 &
   OLLAMA_PID=$!
   STARTED_SERVER=true
-  # Wait for server to be ready
-  for i in {1..10}; do
+  # Wait for server to be ready (up to 30s — first start can be slow)
+  for i in {1..30}; do
+    # Check if the process died
+    if ! kill -0 "$OLLAMA_PID" 2>/dev/null; then
+      echo "  ERROR: Ollama server exited unexpectedly. Logs:"
+      cat "$OLLAMA_LOG" | sed 's/^/    /'
+      rm -f "$OLLAMA_LOG"
+      exit 1
+    fi
     if curl -sf http://localhost:11434/api/tags &>/dev/null; then
       break
     fi
     sleep 1
   done
+  rm -f "$OLLAMA_LOG"
   if ! curl -sf http://localhost:11434/api/tags &>/dev/null; then
-    echo "  ERROR: Could not start ollama server"
+    echo "  ERROR: Ollama server did not respond after 30s"
+    echo "  Check if port 11434 is blocked or another process is using it"
+    kill "$OLLAMA_PID" 2>/dev/null || true
     exit 1
   fi
   echo "  ✓ Ollama server started (PID $OLLAMA_PID)"
