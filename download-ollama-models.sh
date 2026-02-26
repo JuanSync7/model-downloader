@@ -23,6 +23,8 @@ echo ""
 # ── Install / update ollama binary (user-local, no sudo) ─────────────────────
 OLLAMA_BIN="$HOME/.local/bin/ollama"
 OLLAMA_RELEASE_BASE="https://github.com/ollama/ollama/releases/download"
+# Last release that ships .tgz (no zstd needed). Used as fallback.
+OLLAMA_LAST_TGZ_VER="v0.13.0"
 
 install_ollama() {
   local version="$1"
@@ -32,20 +34,26 @@ install_ollama() {
 
   mkdir -p "$(dirname "$OLLAMA_BIN")"
 
-  # Try .tar.zst first (v0.9+), fall back to .tgz for older releases
   local zst_url="${OLLAMA_RELEASE_BASE}/${version}/ollama-linux-amd64.tar.zst"
   local tgz_url="${OLLAMA_RELEASE_BASE}/${version}/ollama-linux-amd64.tgz"
 
-  if command -v zstd &>/dev/null && curl -fsSL --head "$zst_url" &>/dev/null; then
+  if command -v zstd &>/dev/null; then
+    # zstd available — download latest .tar.zst
     echo "  Downloading ollama ${version} (.tar.zst)..."
-    curl -fsSL "$zst_url" | zstd -d | tar -xf - -C "$tmpdir"
-  elif curl -fsSL --head "$tgz_url" &>/dev/null; then
+    curl -fsSL --progress-bar "$zst_url" | zstd -d | tar -xf - -C "$tmpdir"
+  elif curl -fsSL --head "$tgz_url" &>/dev/null 2>&1; then
+    # No zstd but .tgz exists for this version
     echo "  Downloading ollama ${version} (.tgz)..."
-    curl -fsSL "$tgz_url" | tar -xzf - -C "$tmpdir"
+    curl -fsSL --progress-bar "$tgz_url" | tar -xzf - -C "$tmpdir"
   else
-    echo "  ERROR: No compatible archive found for ${version}."
-    echo "  Install zstd to support newer releases: sudo apt-get install zstd"
-    return 1
+    # No zstd and version too new for .tgz — fall back to last tgz release
+    echo "  WARNING: zstd not found and ${version} only ships .tar.zst"
+    echo "  Falling back to ${OLLAMA_LAST_TGZ_VER} (last .tgz release)"
+    echo "  To get the latest version, install zstd: sudo apt-get install zstd"
+    local fallback_url="${OLLAMA_RELEASE_BASE}/${OLLAMA_LAST_TGZ_VER}/ollama-linux-amd64.tgz"
+    echo "  Downloading ollama ${OLLAMA_LAST_TGZ_VER} (.tgz)..."
+    curl -fsSL --progress-bar "$fallback_url" | tar -xzf - -C "$tmpdir"
+    version="$OLLAMA_LAST_TGZ_VER"
   fi
 
   # The archive extracts to bin/ollama
@@ -58,17 +66,19 @@ install_ollama() {
     return 1
   fi
   chmod +x "$OLLAMA_BIN"
+  echo "  Installed version: $(\"$OLLAMA_BIN\" --version 2>&1 | awk '{print $NF}')"
 }
 
 # Fetch latest release tag
 LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/ollama/ollama/releases/latest" \
   | grep '"tag_name"' | head -1 | cut -d'"' -f4)
 LATEST_VER="${LATEST_TAG#v}"
+echo "  Latest Ollama release: $LATEST_VER"
 
 if ! command -v ollama &>/dev/null; then
   echo "  Ollama not found — installing to $OLLAMA_BIN..."
   install_ollama "$LATEST_TAG"
-  echo "  ✓ Ollama installed ($LATEST_VER)"
+  echo "  ✓ Ollama installed"
 else
   OLLAMA_VERSION=$(ollama --version 2>&1 | awk '{print $NF}')
   echo "  Ollama $OLLAMA_VERSION installed at $(which ollama)"
@@ -77,7 +87,7 @@ else
   else
     echo "  ↑ Ollama $OLLAMA_VERSION → $LATEST_VER (upgrading)..."
     install_ollama "$LATEST_TAG"
-    echo "  ✓ Ollama upgraded to $(ollama --version 2>&1 | awk '{print $NF}')"
+    echo "  ✓ Ollama upgraded"
   fi
 fi
 echo ""
