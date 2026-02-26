@@ -3,7 +3,6 @@
 # Downloads: qwen2.5:3b (LLM for RAG generation + query processing)
 # Safe to re-run — only pulls if a newer version is available.
 #
-# Requires: ollama (https://ollama.com)
 # Run with: bash ~/model-downloader/download-ollama-models.sh
 
 set -e
@@ -21,15 +20,24 @@ echo " $(date '+%Y-%m-%d %H:%M:%S')"
 echo "============================================"
 echo ""
 
-# ── Check ollama is installed ────────────────────────────────────────────────
+# ── Install / update ollama binary ───────────────────────────────────────────
 if ! command -v ollama &>/dev/null; then
-  echo "ERROR: ollama not found."
-  echo "Install from: https://ollama.com"
-  exit 1
+  echo "  Ollama not found — installing..."
+  curl -fsSL https://ollama.com/install.sh | sh
+  echo "  ✓ Ollama installed"
+else
+  OLLAMA_VERSION=$(ollama --version 2>&1 | awk '{print $NF}')
+  echo "  Ollama $OLLAMA_VERSION already installed"
+  echo "  Checking for updates..."
+  curl -fsSL https://ollama.com/install.sh | sh
+  NEW_VERSION=$(ollama --version 2>&1 | awk '{print $NF}')
+  if [ "$OLLAMA_VERSION" = "$NEW_VERSION" ]; then
+    echo "  ✓ Ollama $OLLAMA_VERSION (up to date)"
+  else
+    echo "  ↑ Ollama $OLLAMA_VERSION → $NEW_VERSION (upgraded)"
+  fi
 fi
-
-OLLAMA_VERSION=$(ollama --version 2>&1 | awk '{print $NF}')
-echo "  Ollama version: $OLLAMA_VERSION"
+echo ""
 
 # ── Ensure ollama server is running ──────────────────────────────────────────
 if ! curl -sf http://localhost:11434/api/tags &>/dev/null; then
