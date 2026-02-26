@@ -198,8 +198,14 @@ try:
     relevant   = "Machine learning is a subset of AI that learns from data."
     irrelevant = "The Eiffel Tower is located in Paris, France."
 
-    score_relevant   = reranker.compute_score([query, relevant],   normalize=True)
-    score_irrelevant = reranker.compute_score([query, irrelevant], normalize=True)
+    score_relevant   = reranker.compute_score([[query, relevant]],   normalize=True)
+    score_irrelevant = reranker.compute_score([[query, irrelevant]], normalize=True)
+
+    # compute_score returns a list for batch input; extract the single score
+    if isinstance(score_relevant, list):
+        score_relevant = score_relevant[0]
+    if isinstance(score_irrelevant, list):
+        score_irrelevant = score_irrelevant[0]
 
     print(f"  Relevant passage score   : {score_relevant:.4f}  ← should be HIGH")
     print(f"  Irrelevant passage score : {score_irrelevant:.4f}  ← should be LOW")
@@ -231,7 +237,7 @@ Usage in Python:
   # Reranker
   from FlagEmbedding import FlagReranker
   reranker = FlagReranker("$MODELS_DIR/bge-reranker-v2-m3", use_fp16=True)
-  score = reranker.compute_score(["query", "passage"], normalize=True)
+  score = reranker.compute_score([["query", "passage"]], normalize=True)
 """)
 PYEOF
 
