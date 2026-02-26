@@ -57,6 +57,21 @@ install_ollama() {
   chmod +x "$OLLAMA_BIN"
 }
 
+# Ensure ~/.local/bin is on PATH (for this session and future shells)
+if ! echo "$PATH" | tr ':' '\n' | grep -qx "$HOME/.local/bin"; then
+  export PATH="$HOME/.local/bin:$PATH"
+  echo "  Added ~/.local/bin to PATH for this session"
+fi
+
+SHELL_RC="$HOME/.zshrc"
+[ ! -f "$SHELL_RC" ] && SHELL_RC="$HOME/.bashrc"
+if [ -f "$SHELL_RC" ] && ! grep -q 'export PATH="$HOME/.local/bin' "$SHELL_RC" 2>/dev/null; then
+  echo '' >> "$SHELL_RC"
+  echo '# Local binaries (ollama, etc.)' >> "$SHELL_RC"
+  echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELL_RC"
+  echo "  Added ~/.local/bin to $SHELL_RC (reload shell or run: source $SHELL_RC)"
+fi
+
 # Decide which version and format to use upfront
 LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/ollama/ollama/releases/latest" \
   | grep '"tag_name"' | head -1 | cut -d'"' -f4)
