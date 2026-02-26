@@ -20,21 +20,64 @@ echo " $(date '+%Y-%m-%d %H:%M:%S')"
 echo "============================================"
 echo ""
 
-# ── Install / update ollama binary ───────────────────────────────────────────
+# ── Install / update ollama binary (user-local, no sudo) ─────────────────────
+OLLAMA_BIN="$HOME/.local/bin/ollama"
+OLLAMA_RELEASE_BASE="https://github.com/ollama/ollama/releases/download"
+
+install_ollama() {
+  local version="$1"
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  trap "rm -rf $tmpdir" RETURN
+
+  mkdir -p "$(dirname "$OLLAMA_BIN")"
+
+  # Try .tar.zst first (v0.9+), fall back to .tgz for older releases
+  local zst_url="${OLLAMA_RELEASE_BASE}/${version}/ollama-linux-amd64.tar.zst"
+  local tgz_url="${OLLAMA_RELEASE_BASE}/${version}/ollama-linux-amd64.tgz"
+
+  if command -v zstd &>/dev/null && curl -fsSL --head "$zst_url" &>/dev/null; then
+    echo "  Downloading ollama ${version} (.tar.zst)..."
+    curl -fsSL "$zst_url" | zstd -d | tar -xf - -C "$tmpdir"
+  elif curl -fsSL --head "$tgz_url" &>/dev/null; then
+    echo "  Downloading ollama ${version} (.tgz)..."
+    curl -fsSL "$tgz_url" | tar -xzf - -C "$tmpdir"
+  else
+    echo "  ERROR: No compatible archive found for ${version}."
+    echo "  Install zstd to support newer releases: sudo apt-get install zstd"
+    return 1
+  fi
+
+  # The archive extracts to bin/ollama
+  if [ -f "$tmpdir/bin/ollama" ]; then
+    mv "$tmpdir/bin/ollama" "$OLLAMA_BIN"
+  elif [ -f "$tmpdir/ollama" ]; then
+    mv "$tmpdir/ollama" "$OLLAMA_BIN"
+  else
+    echo "  ERROR: ollama binary not found in archive"
+    return 1
+  fi
+  chmod +x "$OLLAMA_BIN"
+}
+
+# Fetch latest release tag
+LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/ollama/ollama/releases/latest" \
+  | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+LATEST_VER="${LATEST_TAG#v}"
+
 if ! command -v ollama &>/dev/null; then
-  echo "  Ollama not found — installing..."
-  curl -fsSL https://ollama.com/install.sh | sh
-  echo "  ✓ Ollama installed"
+  echo "  Ollama not found — installing to $OLLAMA_BIN..."
+  install_ollama "$LATEST_TAG"
+  echo "  ✓ Ollama installed ($LATEST_VER)"
 else
   OLLAMA_VERSION=$(ollama --version 2>&1 | awk '{print $NF}')
-  echo "  Ollama $OLLAMA_VERSION already installed"
-  echo "  Checking for updates..."
-  curl -fsSL https://ollama.com/install.sh | sh
-  NEW_VERSION=$(ollama --version 2>&1 | awk '{print $NF}')
-  if [ "$OLLAMA_VERSION" = "$NEW_VERSION" ]; then
+  echo "  Ollama $OLLAMA_VERSION installed at $(which ollama)"
+  if [ "$OLLAMA_VERSION" = "$LATEST_VER" ]; then
     echo "  ✓ Ollama $OLLAMA_VERSION (up to date)"
   else
-    echo "  ↑ Ollama $OLLAMA_VERSION → $NEW_VERSION (upgraded)"
+    echo "  ↑ Ollama $OLLAMA_VERSION → $LATEST_VER (upgrading)..."
+    install_ollama "$LATEST_TAG"
+    echo "  ✓ Ollama upgraded to $(ollama --version 2>&1 | awk '{print $NF}')"
   fi
 fi
 echo ""
